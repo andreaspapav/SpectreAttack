@@ -34,9 +34,9 @@ const char *readimage()
     long lSize;
     char *buffer;
 
-    fp = fopen("small.txt", "rb");
+    fp = fopen("input.txt", "rb");
     if (!fp)
-        perror("small.txt"), exit(1);
+        perror("input.txt"), exit(1);
 
     fseek(fp, 0L, SEEK_END);
     lSize = ftell(fp);
@@ -221,6 +221,14 @@ int main()
         // }
     }
     printf("F=   %s", str);
+    FILE *f = fopen("output.txt", "w");
+    if (f == NULL)
+    {
+        printf("Error opening file!\n");
+        exit(1);
+    }
+    fprintf(f, "%s\n", str);
+    fclose(f);
 
     return (0);
 }
