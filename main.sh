@@ -14,4 +14,4 @@ base64 --decode $OUTPUT > output.png 2>/dev/null
 echo "Complete."
 convert $TARGET output.png +append out.png
 eog out.png
-rm input.txt output.txt
+
