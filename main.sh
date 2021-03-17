@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-echo "encoding image from input.png..."
-base64 -w 0 small.png > input.txt
-echo "compiling.."
-gcc -O0 -o spectre spectre.c
-./spectre
-echo "saving output to output.png..."
-base64 --decode output.txt > output.png
-echo "Complete."
-convert small.png output.png +append out.png
-eog out.png
 
+TARGET=pixel.png
+INPUT=input.txt
+OUTPUT=output.txt
+
+echo "Encoding image $TARGET to base64"
+base64 -w 0 $TARGET > $INPUT
+echo "Compiling Spectre variant 1 with _no_ optimizations"
+gcc -O0 -o spectre spectre.c
+./spectre input.txt output.txt
+echo "Decoding the base64 string into output.png"
+base64 --decode $OUTPUT > output.png 2>/dev/null
+echo "Complete."
+convert $TARGET output.png +append out.png
+eog out.png
+rm input.txt output.txt
